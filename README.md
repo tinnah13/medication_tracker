@@ -89,3 +89,25 @@ python mat.py
 
 Every write to the database is also saved to the `backup/` folder:
 ```
+backup/
+├── doctors.json
+├── patients.json
+├── medications.json
+├── adherence.json
+└── messages.json
+```
+
+---
+
+## Reminder Logic
+
+Reminders appear when you select **Check my reminders** and a scheduled medication time is within **±15 minutes** of the current clock time.
+
+Example: medication scheduled at `14:00`
+- Reminder appears: **13:45 → 14:15**
+
+---
+
+## Admin ID
+Default admin ID: `ADMIN001`  
+You can change this in `mat.py` at the top: `ADMIN_ID = "ADMIN001"`
