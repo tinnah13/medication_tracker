@@ -419,14 +419,15 @@ def register_patient(doctor):
 
     conn = get_connection()
     existing = conn.execute("""
-    SELECT * FROM patients
-    WHERE doctor_id = ? AND full_name = ? AND phone = ?
-""", (doctor["doctor_id"], full_name, phone)).fetchone()
+        SELECT * FROM patients
+        WHERE doctor_id = ? AND full_name = ? AND phone = ?
+    """, (doctor["doctor_id"], full_name, phone)).fetchone()
 
-if existing:
-    error("This patient already exists in your records.")
-    conn.close()
-    return
+    if existing:
+        error("This patient already exists in your records.")
+        conn.close()
+        return
+
     try:
         conn.execute("""
             INSERT INTO patients
