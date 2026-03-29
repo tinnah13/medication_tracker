@@ -27,33 +27,86 @@ from datetime import datetime, date
 #  PATHS
 # ─────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH  = os.path.join(BASE_DIR, "mat.db")
+DB_PATH = os.path.join(BASE_DIR, "mat.db")
 
-BACKUP_DIR       = os.path.join(BASE_DIR, "backup")
-DOCTORS_BACKUP   = os.path.join(BACKUP_DIR, "doctors.json")
-PATIENTS_BACKUP  = os.path.join(BACKUP_DIR, "patients.json")
-MEDS_BACKUP      = os.path.join(BACKUP_DIR, "medications.json")
+BACKUP_DIR = os.path.join(BASE_DIR, "backup")
+DOCTORS_BACKUP = os.path.join(BACKUP_DIR, "doctors.json")
+PATIENTS_BACKUP = os.path.join(BACKUP_DIR, "patients.json")
+MEDS_BACKUP = os.path.join(BACKUP_DIR, "medications.json")
 ADHERENCE_BACKUP = os.path.join(BACKUP_DIR, "adherence.json")
-MESSAGES_BACKUP  = os.path.join(BACKUP_DIR, "messages.json")
+MESSAGES_BACKUP = os.path.join(BACKUP_DIR, "messages.json")
 
 ADMIN_ID = "ADMIN001"
 
 # ─────────────────────────────────────────────
 #  DISPLAY HELPERS
 # ─────────────────────────────────────────────
-LINE  = "=" * 58
+LINE = "=" * 58
 SLINE = "-" * 58
+
 
 def banner(title):
     print(f"\n{LINE}")
     print(f"  {title}")
     print(LINE)
 
+
 def info(msg):    print(f"  {msg}")
 def success(msg): print(f"\n  ✔  {msg}")
 def error(msg):   print(f"\n  ✘  {msg}")
 def divider():    print(SLINE)
 def prompt(msg):  return input(f"  → {msg}: ").strip()
+
+
+# ─────────────────────────────────────────────
+#  INPUT VALIDATION HELPERS
+# ─────────────────────────────────────────────
+def prompt_alpha(msg):
+    """Loops until the user enters letters and spaces only."""
+    while True:
+        value = input(f"  → {msg}: ").strip()
+        if not value:
+            print("    ✘  This field cannot be empty.")
+        elif not all(c.isalpha() or c.isspace() for c in value):
+            print("    ✘  Only letters are allowed here. No numbers or symbols.")
+        else:
+            return value
+
+
+def prompt_numeric(msg):
+    """Loops until the user enters a positive integer."""
+    while True:
+        value = input(f"  → {msg}: ").strip()
+        if not value:
+            print("    ✘  This field cannot be empty.")
+        elif not value.isdigit() or int(value) <= 0:
+            print("    ✘  Please enter a valid positive number.")
+        else:
+            return value
+
+
+def prompt_phone(msg):
+    """Loops until the user enters a valid phone number (digits, +, -, spaces)."""
+    while True:
+        value = input(f"  → {msg}: ").strip()
+        cleaned = value.replace(" ", "").replace("-", "").replace("+", "")
+        if not value:
+            print("    ✘  Phone number cannot be empty.")
+        elif not cleaned.isdigit() or len(cleaned) < 7:
+            print("    ✘  Invalid phone number. Use digits only (at least 7). You may include +, - or spaces.")
+        else:
+            return value
+
+
+def prompt_choice(msg, choices):
+    """Loops until the user picks one of the allowed choices (case-insensitive)."""
+    options = " / ".join(choices)
+    while True:
+        value = input(f"  → {msg} ({options}): ").strip().lower()
+        for choice in choices:
+            if value == choice.lower():
+                return choice
+        print(f"    ✘  Please enter one of: {options}.")
 
 
 # ─────────────────────────────────────────────
@@ -68,7 +121,7 @@ def get_connection():
 
 def setup_database():
     conn = get_connection()
-    c    = conn.cursor()
+    c = conn.cursor()
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS doctors (
@@ -176,15 +229,12 @@ def register_doctor():
     banner("Register New Doctor Account")
     print()
 
-    full_name = prompt("Full Name")
-    if not full_name:
-        error("Name cannot be empty.")
-        return
-
-    title    = prompt("Title (e.g. Dr., Prof., Nurse)")
-    hospital = prompt("Hospital / Clinic Name")
-    phone    = prompt("Phone Number")
-    country  = prompt("Country")
+    # FIX: name and country now reject numbers
+    full_name = prompt_alpha("Full Name")
+    title     = prompt_alpha("Title (e.g. Dr, Prof, Nurse)")
+    hospital  = prompt("Hospital / Clinic Name")
+    phone     = prompt_phone("Phone Number")
+    country   = prompt_alpha("Country")
 
     doctor_id  = "DR" + str(uuid.uuid4())[:6].upper()
     created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -239,7 +289,7 @@ def doctor_login():
         error("Doctor ID cannot be empty.")
         return None
 
-    conn   = get_connection()
+    conn = get_connection()
     doctor = _row(conn.execute(
         "SELECT * FROM doctors WHERE doctor_id = ?", (doctor_id,)
     ).fetchone())
@@ -270,7 +320,7 @@ def admin_panel():
         error("Invalid Admin ID. Access denied.")
         return
 
-    conn    = get_connection()
+    conn = get_connection()
     doctors = [_row(r) for r in conn.execute(
         "SELECT * FROM doctors ORDER BY created_at DESC"
     ).fetchall()]
@@ -298,16 +348,16 @@ def register_patient(doctor):
     banner("Register New Patient")
     print()
 
-    full_name = prompt("Full Name")
-    if not full_name:
-        error("Name cannot be empty.")
+    # FIX: all fields now use the correct validator
+    full_name = prompt_alpha("Full Name")
+    age       = prompt_numeric("Age")
+    sex       = prompt_choice("Sex", ["Male", "Female", "Other"])
+    village   = prompt("Village / Address")
+    if not village:
+        error("Village / Address cannot be empty.")
         return
-
-    age     = prompt("Age")
-    sex     = prompt("Sex (Male/Female/Other)")
-    village = prompt("Village / Address")
-    phone   = prompt("Phone Number")
-    country = prompt("Country")
+    phone     = prompt_phone("Phone Number")
+    country   = prompt_alpha("Country")
 
     patient_id = str(uuid.uuid4())[:8].upper()
     created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -358,7 +408,8 @@ def register_patient(doctor):
         print("  ╠══════════════════════════════════════════════════╣")
         print(f"  ║  Patient ID : {patient_id:<37}║")
         print(f"  ║  Name       : {full_name[:37]:<37}║")
-        print(f"  ║  Age / Sex  : {(age + ' / ' + sex)[:37]:<37}║")
+        # FIX: age is a string from prompt_numeric so concatenation works safely
+        print(f"  ║  Age / Sex  : {(str(age) + ' / ' + sex)[:37]:<37}║")
         print(f"  ║  Country    : {country[:37]:<37}║")
         print(f"  ║  Phone      : {phone[:37]:<37}║")
         print("  ╠══════════════════════════════════════════════════╣")
@@ -381,14 +432,14 @@ def _list_patients_table(patients):
     print(f"\n  {'ID':<12} {'Name':<25} {'Age':<5} {'Sex':<8} {'Country':<15} {'Phone'}")
     print(f"  {'-'*12} {'-'*25} {'-'*5} {'-'*8} {'-'*15} {'-'*14}")
     for p in patients:
-        print(f"  {p['patient_id']:<12} {p['full_name'][:25]:<25} {p['age']:<5} "
+        print(f"  {p['patient_id']:<12} {p['full_name'][:25]:<25} {str(p['age']):<5} "
               f"{p['sex']:<8} {p['country'][:15]:<15} {p['phone']}")
     print()
 
 
 def view_all_patients(doctor):
     banner("My Patients")
-    conn     = get_connection()
+    conn = get_connection()
     patients = [_row(r) for r in conn.execute(
         "SELECT * FROM patients WHERE doctor_id = ? ORDER BY full_name",
         (doctor["doctor_id"],)
@@ -407,7 +458,7 @@ def view_all_patients(doctor):
 # ─────────────────────────────────────────────
 def view_patient_details(doctor):
     banner("Patient Details & Prescriptions")
-    conn     = get_connection()
+    conn = get_connection()
     patients = [_row(r) for r in conn.execute(
         "SELECT * FROM patients WHERE doctor_id = ? ORDER BY full_name",
         (doctor["doctor_id"],)
@@ -415,7 +466,8 @@ def view_patient_details(doctor):
 
     if not patients:
         info("No patients found.")
-        conn.close(); return
+        conn.close()
+        return
 
     _list_patients_table(patients)
     patient_id = prompt("Enter Patient ID for full details").upper()
@@ -426,7 +478,8 @@ def view_patient_details(doctor):
 
     if not p:
         error("Patient not found or does not belong to you.")
-        conn.close(); return
+        conn.close()
+        return
 
     banner(f"Record — {p['full_name']}")
     info(f"Patient ID : {p['patient_id']}")
@@ -466,7 +519,7 @@ def view_patient_details(doctor):
 # ─────────────────────────────────────────────
 def set_medication_schedule(doctor):
     banner("Set / Modify Medication Schedule")
-    conn     = get_connection()
+    conn = get_connection()
     patients = [_row(r) for r in conn.execute(
         "SELECT * FROM patients WHERE doctor_id = ? ORDER BY full_name",
         (doctor["doctor_id"],)
@@ -474,18 +527,20 @@ def set_medication_schedule(doctor):
 
     if not patients:
         error("You have no registered patients yet.")
-        conn.close(); return
+        conn.close()
+        return
 
     _list_patients_table(patients)
     patient_id = prompt("Enter Patient ID").upper()
-    patient    = _row(conn.execute(
+    patient = _row(conn.execute(
         "SELECT * FROM patients WHERE patient_id = ? AND doctor_id = ?",
         (patient_id, doctor["doctor_id"])
     ).fetchone())
 
     if not patient:
         error("Patient not found or does not belong to you.")
-        conn.close(); return
+        conn.close()
+        return
 
     info(f"Patient: {patient['full_name']}  (ID: {patient_id})")
     print()
@@ -511,7 +566,7 @@ def set_medication_schedule(doctor):
               frequency, times_str, start, end, notes, now))
 
         msg_id = str(uuid.uuid4())[:8].upper()
-        body   = (
+        body = (
             f"Hello {patient['full_name']},\n\n"
             f"Your doctor has prescribed a new medication.\n\n"
             f"  Medication : {med_name}\n"
@@ -549,6 +604,7 @@ def set_medication_schedule(doctor):
     finally:
         conn.close()
 
+
 # ─────────────────────────────────────────────
 #  REMINDERS
 # ─────────────────────────────────────────────
@@ -557,7 +613,7 @@ def send_reminders(doctor_id=None, patient_id=None):
     conn  = get_connection()
     today = str(date.today())
 
-    query  = """
+    query = """
         SELECT m.*, p.full_name, p.patient_id as pid
         FROM medications m
         JOIN patients p ON m.patient_id = p.patient_id
@@ -566,9 +622,11 @@ def send_reminders(doctor_id=None, patient_id=None):
     """
     params = [today, today]
     if doctor_id:
-        query += " AND m.doctor_id = ?"; params.append(doctor_id)
+        query += " AND m.doctor_id = ?"
+        params.append(doctor_id)
     if patient_id:
-        query += " AND m.patient_id = ?"; params.append(patient_id)
+        query += " AND m.patient_id = ?"
+        params.append(patient_id)
 
     meds = [_row(r) for r in conn.execute(query, params).fetchall()]
     conn.close()
@@ -607,7 +665,7 @@ def send_reminders(doctor_id=None, patient_id=None):
 # ─────────────────────────────────────────────
 def view_adherence_report(doctor):
     banner("Adherence Report  [Doctor View]")
-    conn     = get_connection()
+    conn = get_connection()
     patients = [_row(r) for r in conn.execute(
         "SELECT * FROM patients WHERE doctor_id = ? ORDER BY full_name",
         (doctor["doctor_id"],)
@@ -615,18 +673,20 @@ def view_adherence_report(doctor):
 
     if not patients:
         info("No patients found.")
-        conn.close(); return
+        conn.close()
+        return
 
     _list_patients_table(patients)
     patient_id = prompt("Enter Patient ID").upper()
-    patient    = _row(conn.execute(
+    patient = _row(conn.execute(
         "SELECT * FROM patients WHERE patient_id = ? AND doctor_id = ?",
         (patient_id, doctor["doctor_id"])
     ).fetchone())
 
     if not patient:
         error("Patient not found or does not belong to you.")
-        conn.close(); return
+        conn.close()
+        return
 
     logs = [_row(r) for r in conn.execute(
         "SELECT * FROM adherence WHERE patient_id = ? ORDER BY confirmed_at",
@@ -674,9 +734,12 @@ def view_adherence_report(doctor):
     bar     = "█" * filled + "░" * (bar_len - filled)
     print(f"\n  Adherence  [{bar}]  {rate:.1f}%\n")
 
-    if   rate >= 90: info("✅ Excellent adherence. Patient is following the treatment plan well.")
-    elif rate >= 70: info("⚠️  Moderate adherence. Consider counselling or simplified schedule.")
-    else:            info("🚨 Poor adherence. Immediate follow-up recommended.")
+    if rate >= 90:
+        info("✅ Excellent adherence. Patient is following the treatment plan well.")
+    elif rate >= 70:
+        info("⚠️  Moderate adherence. Consider counselling or simplified schedule.")
+    else:
+        info("🚨 Poor adherence. Immediate follow-up recommended.")
 
     _backup(ADHERENCE_BACKUP, {
         patient_id: [{k: str(v) for k, v in l.items()} for l in logs]
@@ -691,14 +754,15 @@ def confirm_intake():
     print()
     patient_id = prompt("Enter your Patient ID").upper()
 
-    conn    = get_connection()
+    conn = get_connection()
     patient = _row(conn.execute(
         "SELECT * FROM patients WHERE patient_id = ?", (patient_id,)
     ).fetchone())
 
     if not patient:
         error("Patient ID not found. Please check with your doctor.")
-        conn.close(); return
+        conn.close()
+        return
 
     print(f"\n  Hello, {patient['full_name']}! 👋")
 
@@ -713,7 +777,8 @@ def confirm_intake():
 
     if not meds:
         info("You have no active medications scheduled for today.")
-        conn.close(); return
+        conn.close()
+        return
 
     print()
     info("Your medications for today:")
@@ -725,12 +790,14 @@ def confirm_intake():
     choice_raw = prompt("Enter medication number to confirm (or 0 to cancel)")
     if not choice_raw.isdigit() or int(choice_raw) == 0:
         info("Cancelled.")
-        conn.close(); return
+        conn.close()
+        return
 
     choice = int(choice_raw)
     if choice < 1 or choice > len(meds):
         error("Invalid selection.")
-        conn.close(); return
+        conn.close()
+        return
 
     selected    = meds[choice - 1]
     taken_input = prompt(
@@ -739,7 +806,8 @@ def confirm_intake():
 
     if taken_input not in ("yes", "y", "no", "n"):
         error("Please enter yes or no.")
-        conn.close(); return
+        conn.close()
+        return
 
     taken_bool   = 1 if taken_input in ("yes", "y") else 0
     confirmed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -752,7 +820,8 @@ def confirm_intake():
             sched_dt = datetime.strptime(f"{today} {t}", "%Y-%m-%d %H:%M")
             diff = abs((now - sched_dt).total_seconds())
             if diff < min_diff:
-                min_diff = diff; closest_time = t
+                min_diff = diff
+                closest_time = t
         except ValueError:
             pass
 
@@ -804,14 +873,15 @@ def view_inbox():
     print()
     patient_id = prompt("Enter your Patient ID").upper()
 
-    conn    = get_connection()
+    conn = get_connection()
     patient = _row(conn.execute(
         "SELECT * FROM patients WHERE patient_id = ?", (patient_id,)
     ).fetchone())
 
     if not patient:
         error("Patient ID not found.")
-        conn.close(); return
+        conn.close()
+        return
 
     messages = [_row(r) for r in conn.execute(
         "SELECT * FROM messages WHERE patient_id = ? ORDER BY sent_at DESC",
@@ -823,7 +893,8 @@ def view_inbox():
 
     if not messages:
         info("Your inbox is empty.")
-        conn.close(); return
+        conn.close()
+        return
 
     unread = sum(1 for m in messages if not m["is_read"])
     info(f"Messages: {len(messages)} total  |  {unread} unread")
@@ -836,12 +907,14 @@ def view_inbox():
     print()
     choice_raw = prompt("Enter message number to read (or 0 to go back)")
     if not choice_raw.isdigit() or int(choice_raw) == 0:
-        conn.close(); return
+        conn.close()
+        return
 
     choice = int(choice_raw)
     if choice < 1 or choice > len(messages):
         error("Invalid selection.")
-        conn.close(); return
+        conn.close()
+        return
 
     msg = messages[choice - 1]
     print()
@@ -988,4 +1061,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
