@@ -55,3 +55,37 @@ python mat.py
 | `medications` | med_id, patient_id, doctor_id, name, dosage, frequency, times, dates |
 | `adherence` | intake logs — when taken, scheduled time, confirmed time |
 | `messages` | patient inbox messages — subject, body, read status |
+
+---
+
+## How It Works
+
+### Doctor Flow
+1. **Main Menu → [2] Register as a new Doctor** — fill in your details, get a Doctor ID
+2. **Main Menu → [1] Doctor Login** — enter your Doctor ID
+3. Inside the portal:
+   - Register patients (each patient belongs to you only)
+   - Set medication schedules
+   - View your patients and their prescriptions
+   - View adherence reports with visual bar
+   - Check due reminders
+
+### Patient Flow
+1. **Main Menu → [3] Patient Portal**
+2. Enter your Patient ID (given by your doctor)
+3. Options:
+   - **My Inbox** — read welcome message and prescription notifications
+   - **Confirm medication intake** — log whether you took your dose
+   - **Check my reminders** — see medications due within 15 minutes
+
+### Admin Flow
+1. **Main Menu → [4] Admin Panel**
+2. Enter Admin ID: `ADMIN001`
+3. View all registered doctors across all hospitals
+
+---
+
+## JSON Backup
+
+Every write to the database is also saved to the `backup/` folder:
+```
