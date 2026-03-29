@@ -107,7 +107,62 @@ def prompt_choice(msg, choices):
             if value == choice.lower():
                 return choice
         print(f"    ✘  Please enter one of: {options}.")
+def prompt_required(msg):
+    while True:
+        value = input(f"  → {msg}: ").strip()
+        if not value:
+            print("    ✘  This field cannot be empty.")
+        else:
+            return value
 
+
+def prompt_age(msg):
+    while True:
+        value = input(f"  → {msg}: ").strip()
+
+        if not value.isdigit():
+            print("    ✘  Enter a valid number.")
+            continue
+
+        age = int(value)
+
+        if age < 1 or age > 120:
+            print("    ✘  Age must be between 1 and 120.")
+        else:
+            return age
+
+
+def prompt_date(msg, allow_empty=False):
+    while True:
+        value = input(f"  → {msg}: ").strip()
+
+        if allow_empty and value == "":
+            return None
+
+        try:
+            datetime.strptime(value, "%Y-%m-%d")
+            return value
+        except ValueError:
+            print("    ✘  Invalid date format. Use YYYY-MM-DD.")
+
+
+def prompt_times(msg):
+    while True:
+        value = input(f"  → {msg}: ").strip()
+        times = [t.strip() for t in value.split(",")]
+
+        valid = True
+        for t in times:
+            try:
+                datetime.strptime(t, "%H:%M")
+            except ValueError:
+                valid = False
+                break
+
+        if valid:
+            return ", ".join(times)
+        else:
+            print("    ✘  Invalid time format. Use HH:MM (e.g. 08:00, 20:00).")
 
 # ─────────────────────────────────────────────
 #  DATABASE — CONNECT & SETUP
@@ -350,7 +405,7 @@ def register_patient(doctor):
 
     # FIX: all fields now use the correct validator
     full_name = prompt_alpha("Full Name")
-    age       = prompt_numeric("Age")
+    age       = prompt_age("Age")
     sex       = prompt_choice("Sex", ["Male", "Female", "Other"])
     village   = prompt("Village / Address")
     if not village:
@@ -363,6 +418,15 @@ def register_patient(doctor):
     created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     conn = get_connection()
+    existing = conn.execute("""
+    SELECT * FROM patients
+    WHERE doctor_id = ? AND full_name = ? AND phone = ?
+""", (doctor["doctor_id"], full_name, phone)).fetchone()
+
+if existing:
+    error("This patient already exists in your records.")
+    conn.close()
+    return
     try:
         conn.execute("""
             INSERT INTO patients
@@ -545,12 +609,12 @@ def set_medication_schedule(doctor):
     info(f"Patient: {patient['full_name']}  (ID: {patient_id})")
     print()
 
-    med_name  = prompt("Medication Name")
-    dosage    = prompt("Dosage (e.g. 400 mg)")
-    frequency = prompt("Frequency (e.g. twice daily)")
-    times_str = prompt("Scheduled times, comma-separated (e.g. 08:00, 20:00)")
-    start     = prompt("Start Date (YYYY-MM-DD)  [Enter = today]") or str(date.today())
-    end       = prompt("End Date   (YYYY-MM-DD)  [Enter = blank]") or None
+    med_name  = prompt_required("Medication Name")
+    dosage    = prompt_required("Dosage (e.g. 400 mg)")
+    frequency = prompt_required("Frequency (e.g. twice daily)")
+    times_str = prompt_times("Scheduled times, comma-separated (e.g. 08:00, 20:00)")
+    start     = prompt_date("Start Date (YYYY-MM-DD)  [Enter = today]") or str(date.today())
+    end       = prompt_date("End Date   (YYYY-MM-DD)  [Enter = blank]") or None
     notes     = prompt("Additional notes         [Enter = none]") or ""
 
     med_id = str(uuid.uuid4())[:8].upper()
