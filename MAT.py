@@ -26,6 +26,9 @@ from datetime import datetime, date
 # ─────────────────────────────────────────────
 #  PATHS
 # ─────────────────────────────────────────────
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH  = os.path.join(BASE_DIR, "mat.db")
+
 BACKUP_DIR       = os.path.join(BASE_DIR, "backup")
 DOCTORS_BACKUP   = os.path.join(BACKUP_DIR, "doctors.json")
 PATIENTS_BACKUP  = os.path.join(BACKUP_DIR, "patients.json")
