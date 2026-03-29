@@ -545,3 +545,444 @@ def set_medication_schedule(doctor):
         error(f"Database error: {e}")
     finally:
         conn.close()
+
+# ─────────────────────────────────────────────
+#  REMINDERS
+# ─────────────────────────────────────────────
+def send_reminders(doctor_id=None, patient_id=None):
+    banner("Medication Reminders — Now Checking")
+    conn  = get_connection()
+    today = str(date.today())
+
+    query  = """
+        SELECT m.*, p.full_name, p.patient_id as pid
+        FROM medications m
+        JOIN patients p ON m.patient_id = p.patient_id
+        WHERE m.start_date <= ?
+          AND (m.end_date IS NULL OR m.end_date >= ?)
+    """
+    params = [today, today]
+    if doctor_id:
+        query += " AND m.doctor_id = ?"; params.append(doctor_id)
+    if patient_id:
+        query += " AND m.patient_id = ?"; params.append(patient_id)
+
+    meds = [_row(r) for r in conn.execute(query, params).fetchall()]
+    conn.close()
+
+    now  = datetime.now()
+    sent = 0
+
+    for med in meds:
+        for sched_time in [t.strip() for t in med["times"].split(",")]:
+            try:
+                sched_dt = datetime.strptime(f"{today} {sched_time}", "%Y-%m-%d %H:%M")
+            except ValueError:
+                continue
+            diff = abs((now - sched_dt).total_seconds() / 60)
+            if diff <= 15:
+                print()
+                print("  ╔══════════════════════════════════════════════╗")
+                print("  ║  🔔  MEDICATION REMINDER                       ║")
+                print("  ╠══════════════════════════════════════════════╣")
+                print(f"  ║  Patient  : {med['full_name'][:32]:<32}║")
+                print(f"  ║  ID       : {med['pid']:<32}║")
+                print(f"  ║  Medicine : {med['med_name'][:32]:<32}║")
+                print(f"  ║  Dosage   : {med['dosage'][:32]:<32}║")
+                print(f"  ║  Time     : {sched_time:<32}║")
+                print("  ╚══════════════════════════════════════════════╝")
+                sent += 1
+
+    if sent == 0:
+        info("No medications due within the next 15 minutes right now.")
+    else:
+        success(f"{sent} reminder(s) displayed.")
+
+
+# ─────────────────────────────────────────────
+#  ADHERENCE REPORT
+# ─────────────────────────────────────────────
+def view_adherence_report(doctor):
+    banner("Adherence Report  [Doctor View]")
+    conn     = get_connection()
+    patients = [_row(r) for r in conn.execute(
+        "SELECT * FROM patients WHERE doctor_id = ? ORDER BY full_name",
+        (doctor["doctor_id"],)
+    ).fetchall()]
+
+    if not patients:
+        info("No patients found.")
+        conn.close(); return
+
+    _list_patients_table(patients)
+    patient_id = prompt("Enter Patient ID").upper()
+    patient    = _row(conn.execute(
+        "SELECT * FROM patients WHERE patient_id = ? AND doctor_id = ?",
+        (patient_id, doctor["doctor_id"])
+    ).fetchone())
+
+    if not patient:
+        error("Patient not found or does not belong to you.")
+        conn.close(); return
+
+    logs = [_row(r) for r in conn.execute(
+        "SELECT * FROM adherence WHERE patient_id = ? ORDER BY confirmed_at",
+        (patient_id,)
+    ).fetchall()]
+    conn.close()
+
+    print()
+    info(f"Patient  : {patient['full_name']}")
+    info(f"ID       : {patient['patient_id']}")
+    info(f"Age/Sex  : {patient['age']} / {patient['sex']}")
+    info(f"Village  : {patient['village']}")
+    info(f"Country  : {patient['country']}")
+    info(f"Phone    : {patient['phone']}")
+    divider()
+
+    if not logs:
+        info("No adherence records found for this patient.")
+        return
+
+    total  = len(logs)
+    taken  = sum(1 for l in logs if l["taken"])
+    missed = total - taken
+    rate   = (taken / total * 100) if total else 0
+
+    info(f"Total confirmations : {total}")
+    info(f"Doses taken         : {taken}")
+    info(f"Doses missed        : {missed}")
+    info(f"Adherence rate      : {rate:.1f}%")
+    divider()
+
+    print(f"  {'Date':<12} {'Time':<10} {'Medication':<20} {'Dosage':<12} {'Scheduled':<10} {'Status'}")
+    print(f"  {'-'*12} {'-'*10} {'-'*20} {'-'*12} {'-'*10} {'-'*8}")
+    for log in logs:
+        ts     = str(log["confirmed_at"])
+        d      = ts[:10]
+        t      = ts[11:19] if len(ts) > 10 else "-"
+        sched  = log.get("scheduled_time") or "N/A"
+        status = "✔ Taken" if log["taken"] else "✘ Missed"
+        print(f"  {d:<12} {t:<10} {log['med_name']:<20} {log['dosage']:<12} {sched:<10} {status}")
+
+    divider()
+    bar_len = 30
+    filled  = int(bar_len * rate / 100)
+    bar     = "█" * filled + "░" * (bar_len - filled)
+    print(f"\n  Adherence  [{bar}]  {rate:.1f}%\n")
+
+    if   rate >= 90: info("✅ Excellent adherence. Patient is following the treatment plan well.")
+    elif rate >= 70: info("⚠️  Moderate adherence. Consider counselling or simplified schedule.")
+    else:            info("🚨 Poor adherence. Immediate follow-up recommended.")
+
+    _backup(ADHERENCE_BACKUP, {
+        patient_id: [{k: str(v) for k, v in l.items()} for l in logs]
+    })
+
+
+# ─────────────────────────────────────────────
+#  PATIENT — CONFIRM INTAKE
+# ─────────────────────────────────────────────
+def confirm_intake():
+    banner("Medication Intake Confirmation  [Patient Portal]")
+    print()
+    patient_id = prompt("Enter your Patient ID").upper()
+
+    conn    = get_connection()
+    patient = _row(conn.execute(
+        "SELECT * FROM patients WHERE patient_id = ?", (patient_id,)
+    ).fetchone())
+
+    if not patient:
+        error("Patient ID not found. Please check with your doctor.")
+        conn.close(); return
+
+    print(f"\n  Hello, {patient['full_name']}! 👋")
+
+    today = str(date.today())
+    meds  = [_row(r) for r in conn.execute("""
+        SELECT * FROM medications
+        WHERE patient_id = ?
+          AND start_date <= ?
+          AND (end_date IS NULL OR end_date >= ?)
+        ORDER BY med_name
+    """, (patient_id, today, today)).fetchall()]
+
+    if not meds:
+        info("You have no active medications scheduled for today.")
+        conn.close(); return
+
+    print()
+    info("Your medications for today:")
+    divider()
+    for idx, med in enumerate(meds, 1):
+        info(f"  [{idx}] {med['med_name']}  |  {med['dosage']}  |  {med['frequency']}  |  Times: {med['times']}")
+    divider()
+
+    choice_raw = prompt("Enter medication number to confirm (or 0 to cancel)")
+    if not choice_raw.isdigit() or int(choice_raw) == 0:
+        info("Cancelled.")
+        conn.close(); return
+
+    choice = int(choice_raw)
+    if choice < 1 or choice > len(meds):
+        error("Invalid selection.")
+        conn.close(); return
+
+    selected    = meds[choice - 1]
+    taken_input = prompt(
+        f"Did you take {selected['med_name']} ({selected['dosage']})? (yes/no)"
+    ).lower()
+
+    if taken_input not in ("yes", "y", "no", "n"):
+        error("Please enter yes or no.")
+        conn.close(); return
+
+    taken_bool   = 1 if taken_input in ("yes", "y") else 0
+    confirmed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    now          = datetime.now()
+    closest_time = None
+    min_diff     = float("inf")
+    for t in [x.strip() for x in selected["times"].split(",")]:
+        try:
+            sched_dt = datetime.strptime(f"{today} {t}", "%Y-%m-%d %H:%M")
+            diff = abs((now - sched_dt).total_seconds())
+            if diff < min_diff:
+                min_diff = diff; closest_time = t
+        except ValueError:
+            pass
+
+    try:
+        conn.execute("""
+            INSERT INTO adherence
+            (patient_id, med_id, med_name, dosage, taken, scheduled_time, confirmed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (patient_id, selected["med_id"], selected["med_name"],
+              selected["dosage"], taken_bool, closest_time, confirmed_at))
+        conn.commit()
+
+        _backup(ADHERENCE_BACKUP, {
+            patient_id: [{
+                "med_name": selected["med_name"], "dosage": selected["dosage"],
+                "taken": bool(taken_bool), "scheduled_time": closest_time,
+                "confirmed_at": confirmed_at,
+            }]
+        })
+
+        if taken_bool:
+            success(f"Thank you! Recorded at {confirmed_at}.")
+            info(f"You confirmed taking {selected['med_name']} ({selected['dosage']}).")
+        else:
+            info(f"Recorded: {selected['med_name']} — NOT taken at {confirmed_at[11:19]}.")
+            info("Please take it as soon as possible, or consult your doctor.")
+
+    except sqlite3.Error as e:
+        error(f"Database error: {e}")
+    finally:
+        conn.close()
+
+
+# ─────────────────────────────────────────────
+#  PATIENT INBOX
+# ─────────────────────────────────────────────
+def _unread_count(patient_id):
+    conn  = get_connection()
+    count = conn.execute(
+        "SELECT COUNT(*) FROM messages WHERE patient_id = ? AND is_read = 0",
+        (patient_id,)
+    ).fetchone()[0]
+    conn.close()
+    return count
+
+
+def view_inbox():
+    banner("My Inbox  [Patient Portal]")
+    print()
+    patient_id = prompt("Enter your Patient ID").upper()
+
+    conn    = get_connection()
+    patient = _row(conn.execute(
+        "SELECT * FROM patients WHERE patient_id = ?", (patient_id,)
+    ).fetchone())
+
+    if not patient:
+        error("Patient ID not found.")
+        conn.close(); return
+
+    messages = [_row(r) for r in conn.execute(
+        "SELECT * FROM messages WHERE patient_id = ? ORDER BY sent_at DESC",
+        (patient_id,)
+    ).fetchall()]
+
+    print(f"\n  Hello, {patient['full_name']}! 👋")
+    divider()
+
+    if not messages:
+        info("Your inbox is empty.")
+        conn.close(); return
+
+    unread = sum(1 for m in messages if not m["is_read"])
+    info(f"Messages: {len(messages)} total  |  {unread} unread")
+    divider()
+
+    for idx, msg in enumerate(messages, 1):
+        status = "● NEW" if not msg["is_read"] else "  ✔ "
+        print(f"  [{idx}] {status}  {str(msg['sent_at'])[:16]}   {msg['subject']}")
+
+    print()
+    choice_raw = prompt("Enter message number to read (or 0 to go back)")
+    if not choice_raw.isdigit() or int(choice_raw) == 0:
+        conn.close(); return
+
+    choice = int(choice_raw)
+    if choice < 1 or choice > len(messages):
+        error("Invalid selection.")
+        conn.close(); return
+
+    msg = messages[choice - 1]
+    print()
+    print("  ╔══════════════════════════════════════════════════╗")
+    print("  ║  📬  MESSAGE                                      ║")
+    print("  ╠══════════════════════════════════════════════════╣")
+    print(f"  ║  From    : Your Healthcare Team                   ║")
+    print(f"  ║  Date    : {str(msg['sent_at'])[:16]:<39}║")
+    print(f"  ║  Subject : {str(msg['subject'])[:39]:<39}║")
+    print("  ╠══════════════════════════════════════════════════╣")
+    for line in msg["body"].split("\n"):
+        print(f"  ║  {line[:49]:<49}║")
+    print("  ╚══════════════════════════════════════════════════╝")
+
+    conn.execute("UPDATE messages SET is_read = 1 WHERE msg_id = ?", (msg["msg_id"],))
+    conn.commit()
+    conn.close()
+    info("\n  Message marked as read.")
+
+
+# ─────────────────────────────────────────────
+#  MENUS
+# ─────────────────────────────────────────────
+def doctor_menu(doctor):
+    while True:
+        banner(f"Doctor Portal — {doctor['title']} {doctor['full_name']}")
+        print()
+        info("  [1]  Register a new patient")
+        info("  [2]  Set / Modify medication schedule")
+        info("  [3]  View my patients")
+        info("  [4]  View patient details & prescriptions")
+        info("  [5]  View adherence report")
+        info("  [6]  Check due reminders")
+        info("  [0]  Logout")
+        print()
+        choice = prompt("Select an option")
+
+        if   choice == "1": register_patient(doctor)
+        elif choice == "2": set_medication_schedule(doctor)
+        elif choice == "3": view_all_patients(doctor)
+        elif choice == "4": view_patient_details(doctor)
+        elif choice == "5": view_adherence_report(doctor)
+        elif choice == "6": send_reminders(doctor_id=doctor["doctor_id"])
+        elif choice == "0":
+            info(f"Logged out. Goodbye, {doctor['title']} {doctor['full_name']}!")
+            break
+        else:
+            error("Invalid option.")
+
+        input("\n  Press Enter to continue...")
+
+
+def patient_menu():
+    while True:
+        banner("Patient Portal")
+        print()
+        patient_id = prompt(
+            "Enter your Patient ID to check unread messages (or Enter to skip)"
+        ).upper()
+
+        unread_badge = ""
+        if patient_id:
+            try:
+                count = _unread_count(patient_id)
+                if count > 0:
+                    unread_badge = f"  📬 {count} unread"
+            except Exception:
+                pass
+
+        print()
+        info(f"  [1]  My Inbox{unread_badge}")
+        info("  [2]  Confirm medication intake")
+        info("  [3]  Check my reminders")
+        info("  [0]  Back to main menu")
+        print()
+        choice = prompt("Select an option")
+
+        if   choice == "1": view_inbox()
+        elif choice == "2": confirm_intake()
+        elif choice == "3":
+            pid = patient_id if patient_id else prompt("Enter your Patient ID").upper()
+            send_reminders(patient_id=pid)
+        elif choice == "0": break
+        else: error("Invalid option.")
+
+        input("\n  Press Enter to continue...")
+
+
+def introduction():
+    print(f"\n{LINE}")
+    print("      MEDICATION ADHERENCE TRACKER (MAT) v2")
+    print("      SQLite Database  +  JSON Backup")
+    print(LINE)
+    print()
+    print("  Doctor  →  Register once, login with your Doctor ID")
+    print("             Manage only your own patients & reports")
+    print()
+    print("  Patient →  Use Patient ID to confirm doses,")
+    print("             read inbox messages & check reminders")
+    print()
+    print(f"  Admin   →  ID: {ADMIN_ID}  |  View all registered doctors")
+    print()
+    print(f"  Database: mat.db      (auto-created, no setup needed)")
+    print(f"  Backup  : backup/     (JSON files updated on every save)")
+    print()
+
+
+def main():
+    setup_database()
+    introduction()
+
+    while True:
+        banner("Main Menu")
+        print()
+        info("  [1]  Doctor Login")
+        info("  [2]  Register as a new Doctor")
+        info("  [3]  Patient Portal")
+        info("  [4]  Admin Panel")
+        info("  [0]  Exit")
+        print()
+        choice = prompt("Select an option")
+
+        if choice == "1":
+            doctor = doctor_login()
+            if doctor:
+                input("\n  Press Enter to enter your portal...")
+                doctor_menu(doctor)
+        elif choice == "2":
+            register_doctor()
+            input("\n  Press Enter to continue...")
+        elif choice == "3":
+            patient_menu()
+        elif choice == "4":
+            admin_panel()
+            input("\n  Press Enter to continue...")
+        elif choice == "0":
+            print()
+            info("Goodbye! Stay healthy. 💊")
+            print()
+            break
+        else:
+            error("Invalid option. Please type 1, 2, 3, 4, or 0.")
+
+
+if __name__ == "__main__":
+    main()
+
